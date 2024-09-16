@@ -6,5 +6,3 @@ Teammates:
 
 - Tianyu: [Github](https://github.com/tianyu0923)
 - Yang Jiao: [Github](https://github.com/Young884)
-
-This is dev branch of Yang Jiao
