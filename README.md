@@ -14,7 +14,7 @@ See in [Design.md](./Design.md)
 Compile and run:
 ```
 make
-./fileCompare.o
+./generateFile.o
 ./server.o [port]
 ./client.o [ip] [port]
 ```
