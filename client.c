@@ -14,9 +14,7 @@
 #define FILE_SIZE (1L * 1024 * 1024 * 1024)
 #define FILE_NAME "file.txt"
 #define PAGE_SIZE 1024
-#define NUM_THREADS_SENDER 64
-#define NUM_THREADS_RECEIVER 64
-#define NUM_THREADS_RTT 8
+#define NUM_THREADS 64
 #define REPLY_SIZE 4 + sizeof(double)
 
 typedef struct
@@ -26,7 +24,7 @@ typedef struct
     long chunk_size;
 } ThreadData;
 
-int sockfd;
+int sockfd[NUM_THREADS];
 double RTT;
 struct sockaddr_in server_addr;
 unsigned char ACK[FILE_SIZE / PAGE_SIZE];
@@ -78,7 +76,7 @@ void *thread_sendfile(void *arg)
                     memset(packet, 0, sizeof(packet));
                     memcpy(packet, &sequenceNumber, sizeof(int));
                     memcpy(packet + sizeof(int), buffer, bytesRead);
-                    sendto(sockfd,
+                    sendto(sockfd[data->thread_id],
                            packet,
                            bytesRead + sizeof(int),
                            0,
@@ -89,10 +87,6 @@ void *thread_sendfile(void *arg)
             }
         }
         sleep(2L * RTT);
-        if (allSent == 1)
-        {
-            printf("Sender thread %d: exit\n", data->thread_id);
-        }
     }
 
     fclose(file);
@@ -109,10 +103,11 @@ void *thread_revfile(void *arg)
     char reply[REPLY_SIZE];
     while (1)
     {
-        int n = recvfrom(sockfd, reply, sizeof(reply), 0, NULL, NULL);
+        int n = recvfrom(sockfd[thread_id], reply, sizeof(reply), 0, NULL, NULL);
         if (strncmp(reply, "RTT:", 4) == 0)
         {
             memcpy(&begin, reply + 4, sizeof(double));
+            // printf("Receiver %d: received file RTT, begin: %f\n", thread_id, begin);
             if (clock_gettime(CLOCK_REALTIME, &end) == -1)
             {
                 perror("clock gettime");
@@ -137,6 +132,7 @@ void *thread_RTT(void *arg)
     struct timespec start;
     double time;
     char packet[PAGE_SIZE + sizeof(int)];
+    int thread_id = *(int *)arg;
     while (RTT < 0)
     {
         if (clock_gettime(CLOCK_REALTIME, &start) == -1)
@@ -148,7 +144,12 @@ void *thread_RTT(void *arg)
         memcpy(packet, "RTT:", 4);
         memcpy(packet + 4, &time, sizeof(double));
         // printf("Sending RTT request: %s\n", packet);
-        sendto(sockfd, packet, PAGE_SIZE + sizeof(int), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+        sendto(sockfd[thread_id],
+               packet,
+               PAGE_SIZE + sizeof(int),
+               0,
+               (struct sockaddr *)&server_addr,
+               sizeof(server_addr));
         sleep(1);
     }
     pthread_exit(NULL);
@@ -157,10 +158,10 @@ void *thread_RTT(void *arg)
 int main(int argc, char *argv[])
 {
     memset(ACK, 0, sizeof(ACK));
-    pthread_t sender[NUM_THREADS_SENDER];
-    pthread_t receiver[NUM_THREADS_RECEIVER];
-    pthread_t RTT_Measure[NUM_THREADS_RTT];
-    ThreadData thread_data[NUM_THREADS_SENDER];
+    pthread_t sender[NUM_THREADS];
+    pthread_t receiver[NUM_THREADS];
+    pthread_t RTT_Measure[NUM_THREADS];
+    ThreadData thread_data[NUM_THREADS];
     long chunk_size_per_thread;
     RTT = -1.0;
 
@@ -170,31 +171,34 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    for (int i = 0; i < NUM_THREADS; i++)
+    {
+        sockfd[i] = socket(AF_INET, SOCK_DGRAM, 0);
+    }
 
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = inet_addr(argv[1]);
     server_addr.sin_port = htons(atoi(argv[2]));
 
-    chunk_size_per_thread = FILE_SIZE / NUM_THREADS_SENDER;
+    chunk_size_per_thread = FILE_SIZE / NUM_THREADS;
 
-    for (int i = 0; i < NUM_THREADS_RECEIVER; i++)
+    for (int i = 0; i < NUM_THREADS; i++)
     {
         pthread_create(&receiver[i], NULL, thread_revfile, &i);
     }
 
-    for (int i = 0; i < NUM_THREADS_RTT; i++)
+    for (int i = 0; i < NUM_THREADS; i++)
     {
         pthread_create(&RTT_Measure[i], NULL, thread_RTT, &i);
     }
 
-    for (int i = 0; i < NUM_THREADS_RTT; i++)
+    for (int i = 0; i < NUM_THREADS; i++)
     {
         pthread_join(RTT_Measure[i], NULL);
     }
     printf("Measured RTT: %f s\n", RTT);
     printTimestamp();
-    for (int i = 0; i < NUM_THREADS_SENDER; i++)
+    for (int i = 0; i < NUM_THREADS; i++)
     {
         thread_data[i].thread_id = i;
         thread_data[i].offset = i * chunk_size_per_thread;
@@ -203,9 +207,13 @@ int main(int argc, char *argv[])
         pthread_create(&sender[i], NULL, thread_sendfile, &thread_data[i]);
     }
 
-    for (int i = 0; i < NUM_THREADS_SENDER; i++)
+    for (int i = 0; i < NUM_THREADS; i++)
     {
         pthread_join(sender[i], NULL);
+    }
+    for (int i = 0; i < NUM_THREADS; i++)
+    {
+        close(sockfd[i]);
     }
     return 0;
 }
