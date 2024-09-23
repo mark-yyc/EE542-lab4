@@ -1,8 +1,8 @@
 all: client server generateFile
 client: client
-	gcc client.c -o client.o
+	gcc -pthread client.c -o client.o
 server: server.c
-	gcc server.c -o server.o
+	gcc -pthread server.c -o server.o
 generateFile: generateFile
 	gcc generateFile.c -o generateFile.o
 clean:
