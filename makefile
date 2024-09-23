@@ -1,5 +1,5 @@
 all: client server generateFile
-client: client
+client: client.c
 	gcc -pthread client.c -o client.o
 server: server.c
 	gcc -pthread server.c -o server.o
